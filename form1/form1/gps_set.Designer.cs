@@ -52,8 +52,6 @@
             // GpsComName
             // 
             this.GpsComName.FormattingEnabled = true;
-            this.GpsComName.Items.AddRange(new object[] {
-            "COM2"});
             this.GpsComName.Location = new System.Drawing.Point(89, 19);
             this.GpsComName.Margin = new System.Windows.Forms.Padding(2);
             this.GpsComName.Name = "GpsComName";

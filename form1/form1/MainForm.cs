@@ -445,9 +445,38 @@ namespace form1
             param_form = new tele_param();
             param_form.Show();
         }
+        /// <summary>
+        /// 取消所有Mint操作，清掉所有错误和缓存
+        /// </summary>
+        /// <param name="wParam"></param>
+        public void TeleCancel(short wParam)
+        {
+            short axis = wParam;
+            lock(TeleLock)
+            {
+                m_telescope.DoCancel(axis);
+            }
+        }
 
         /// <summary>
-        /// 设置速度参数（送速度）
+        /// 设置mint轴速度函数（两个轴分别调用）
+        /// </summary>
+        /// <param name="wParam"></param>
+        /// <param name="lParam"></param>
+        public void TeleSpeed(short wParam,float lParam)
+        {
+            short axis = wParam;
+            float v = lParam;
+            lock(TeleLock)
+            {
+                m_telescope.set_Jog(axis, v);
+            }
+        }
+
+
+
+        /// <summary>
+        /// 设置速度参数（送速度按键）
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
@@ -458,18 +487,36 @@ namespace form1
             long vdec = -150000;
             vha = (long)(vha / Constants.TELESCOPE_COUNTSCALE_HA * -1);
             vdec = (long)(vdec / Constants.TELESCOPE_COUNTSCALE_DEC);
-            //调用送位置的两个函数
+            //调用送位置的两个函数(如果卡死再改线程）
+            TeleSpeed(Constants.TELESCOPE_AXIS_HA, vha);
+            TeleSpeed(Constants.TELESCOPE_AXIS_DEC, vdec);
 
             tele_status = TeleReportedConstants.SOCK_REPORT_RUNNING;
         }
         /// <summary>
-        /// 停止望远镜操作
+        /// 设置mint轴停止函数（两个轴分别调用）
+        /// </summary>
+        /// <param name="wParam"></param>
+        public void TeleStop(short wParam)
+        {
+            short axis = wParam;
+            lock(TeleLock)
+            {
+                m_telescope.DoStop(axis);
+            }
+        }
+
+        /// <summary>
+        /// 停止望远镜操作（停止望远镜按键）
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
         private void Stop_Click(object sender, EventArgs e)
         {
             if (tele_status ==TeleReportedConstants.SOCK_REPORT_DISCONNECT) return;
+            //调用轴停止函数（如果会卡死则该线程）
+            TeleStop(Constants.TELESCOPE_AXIS_HA);
+            TeleStop(Constants.TELESCOPE_AXIS_DEC);
 
             if (clibzero_thread != null)
             {
@@ -483,73 +530,27 @@ namespace form1
             tele_status = TeleReportedConstants.SOCK_REPORT_WAITING;
         }
 
-        /// <summary>
-        /// 打开镜盖操作
-        /// </summary>
-        public bool OpenCap()
-        {
-            if(m_cap_connected)
-            {
-                m_cap.set_Out(0, 0x55);
-                return true;
-            }else
-            {
-                MessageBox.Show("cap not connected");
-                return false;
-            }
-            
-        }
-        /// <summary>
-        /// 关闭镜盖操作
-        /// </summary>
-        public bool CloseCap()
-        {
-            if (m_cap_connected)
-            {
-                m_cap.set_Out(0, 0xAA);
-                return true;
-            }else
-            {
-                MessageBox.Show("cap not connected");
-                return false;
-            }
-        }
+        
 
         /// <summary>
-        /// 停止镜盖运动操作
+        /// 送位置，设置mint的函数（两个轴分别调用）
         /// </summary>
-        public bool StopCap()
+        /// <param name="wParam"></param>
+        /// <param name="lParam"></param>
+        public void TelePosition(short wParam,float lParam)
         {
-            if (m_cap_connected)
+            lock (TeleLock)
             {
-                m_cap.set_Out(0, 0x00);
-                return true;
-            }else
-            {
-                MessageBox.Show("cap not connected");
-                return false;
+                short axis = wParam;
+                float p = lParam;
+                m_telescope.set_FeedrateMode(axis, 1);
+                m_telescope.set_Speed(axis, 150000 / Constants.TELESCOPE_COUNTSCALE_HA);
+                m_telescope.set_MoveA(axis, p);
+                m_telescope.DoGo1(axis);
             }
         }
-
         /// <summary>
-        /// 镜盖操作对话框
-        /// </summary>
-        /// <param name="sender"></param>
-        /// <param name="e"></param>
-        private void 镜盖操作ToolStripMenuItem_Click(object sender, EventArgs e)
-        {
-            if (cap_form != null && cap_form.Created)
-            {
-                cap_form.Focus();
-                return;
-            }
-
-            cap_form = new set_cap(this);
-            cap_form.Show();
-
-        }
-        /// <summary>
-        /// 送位置
+        /// 送位置按键
         /// </summary>
         /// <param name="sender"></param>
         /// <param name="e"></param>
@@ -563,6 +564,9 @@ namespace form1
 
             pha = m_telez_ha / Constants.TELESCOPE_COUNTSCALE_HA - pha;
             pdec = pdec - m_telez_dec / Constants.TELESCOPE_COUNTSCALE_DEC;
+            //调用设置mint位置和速度的函数（测试，如果会卡死再改线程）
+            TelePosition(Constants.TELESCOPE_AXIS_HA, pha);
+            TelePosition(Constants.TELESCOPE_AXIS_DEC, pdec);
 
             tele_status = TeleReportedConstants.SOCK_REPORT_RUNNING;
             new Thread(thread_func_checkpsing);
@@ -595,7 +599,80 @@ namespace form1
 
             tele_status = TeleReportedConstants.SOCK_REPORT_WAITING;
         }
+
+
+
+        /// <summary>
+        /// 打开镜盖操作
+        /// </summary>
+        public bool OpenCap()
+        {
+            if (m_cap_connected)
+            {
+                m_cap.set_Out(0, 0x55);
+                return true;
+            }
+            else
+            {
+                MessageBox.Show("cap not connected");
+                return false;
+            }
+
+        }
+        /// <summary>
+        /// 关闭镜盖操作
+        /// </summary>
+        public bool CloseCap()
+        {
+            if (m_cap_connected)
+            {
+                m_cap.set_Out(0, 0xAA);
+                return true;
+            }
+            else
+            {
+                MessageBox.Show("cap not connected");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 停止镜盖运动操作
+        /// </summary>
+        public bool StopCap()
+        {
+            if (m_cap_connected)
+            {
+                m_cap.set_Out(0, 0x00);
+                return true;
+            }
+            else
+            {
+                MessageBox.Show("cap not connected");
+                return false;
+            }
+        }
+
+        /// <summary>
+        /// 镜盖操作对话框
+        /// </summary>
+        /// <param name="sender"></param>
+        /// <param name="e"></param>
+        private void 镜盖操作ToolStripMenuItem_Click(object sender, EventArgs e)
+        {
+            if (cap_form != null && cap_form.Created)
+            {
+                cap_form.Focus();
+                return;
+            }
+
+            cap_form = new set_cap(this);
+            cap_form.Show();
+
+        }
     }
+
+
     
     /// <summary>
     /// 望远镜状态常量参数
